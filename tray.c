@@ -28,6 +28,8 @@
 #include <shellapi.h>
 #include <tchar.h>
 #include <time.h>
+#include <ras.h>
+#include <raserror.h>
 
 #include "tray.h"
 #include "service.h"
@@ -46,6 +48,116 @@ HMENU hMenuService;
 NOTIFYICONDATA ni;
 extern options_t o;
 
+static const TCHAR VpnEntryPrefix[] = _T("OpenVPN ");
+static const TCHAR WindowCaption[] = _T("OpenVPN-GUI");
+
+/* Delete OpenVPN entries from Windows networking/VPN flyout */
+void
+ClearNetworkFlyout()
+{
+    DWORD result = ERROR_SUCCESS;
+    LPRASENTRYNAME entryName = NULL;
+    DWORD entryNameSize = 0;
+    DWORD entryCount = 0;
+
+    /* Determine memory required */
+    result = RasEnumEntries(NULL, NULL, NULL, &entryNameSize, &entryCount);
+    if (ERROR_BUFFER_TOO_SMALL != result)
+    {
+        /* Anything else is unexpected. */
+        MessageBox(NULL, _T("ClearNetworkFlyout: Could not get memory needed for RAS entries"), WindowCaption, MB_OK);
+        return;
+    }
+
+    entryName = (LPRASENTRYNAME)malloc(entryNameSize);
+    if (NULL == entryName)
+    {
+        /* No memory! */
+        MessageBox(NULL, _T("ClearNetworkFlyout: No memory allocating entry name"), WindowCaption, MB_OK);
+        return;
+    }
+
+    entryName[0].dwSize = sizeof(RASENTRYNAME);
+
+    result = RasEnumEntries(NULL, NULL, entryName, &entryNameSize, &entryCount);
+    if (ERROR_SUCCESS != result)
+    {
+        MessageBox(NULL, _T("ClearNetworkFlyout: Could not enumerate RAS entries"), WindowCaption, MB_OK);
+        free(entryName);
+        return;
+    }
+
+    for (DWORD i = 0; i < entryCount; i++)
+    {
+        if ((entryName[i].dwFlags == REN_User) &&
+            (0 == _tcsncmp(VpnEntryPrefix, entryName[i].szEntryName, _countof(VpnEntryPrefix) - 1)))
+        {
+            /* TODO: Retrieve the entry and verify that it references our custom dialer DLL? RasEnumEntries doesn't
+             * give us this information but we could retrieve the entry and check. This would keep us from purging any
+             * entries which for some inexplicable reason started with the VpnEntryPrefix string.
+             */
+            result = RasDeleteEntry(NULL, entryName[i].szEntryName);
+            if (ERROR_SUCCESS != result)
+            {
+                MessageBox(NULL, _T("ClearNetworkFlyout: Failed to delete entry"), WindowCaption, MB_OK);
+                /* Continue processing; don't return. */
+            }
+        }
+    }
+
+    free(entryName);
+
+    return;
+}
+
+static const TCHAR DialerFileName[] = _T("libopenvpndialer-0.dll");
+static const TCHAR DeviceName[] = _T("TAP-Windows Adapter V9");
+
+/* Create VPN flyout entry for a new connection */
+static void
+CreateNetworkFlyoutEntry(const connection_t *c, int number)
+{
+    DWORD result = ERROR_SUCCESS;
+    RASENTRY entry;
+    TCHAR entryName[RAS_MaxEntryName + 1];
+
+    memset(&entry, 0, sizeof(entry));
+    entry.dwSize = sizeof(entry);
+    _tcsncpy(entry.szDeviceType, RASDT_Vpn, _countof(RASDT_Vpn));
+    _tcsncpy(entry.szDeviceName, DeviceName, _countof(DeviceName));
+
+    entry.dwfOptions = RASEO_Custom;
+    /* Take the exe_path, strip off everything after the last backslash, and append DialerFileName */
+    TCHAR* lastBackslash = _tcsrchr(o.exe_path, _T('\\'));
+    if (NULL == lastBackslash)
+    {
+        MessageBox(NULL, _T("CreateNetworkFlyoutEntry: No last backslash found"), WindowCaption, MB_OK);
+        return;
+    }
+    _tcsncpy(entry.szCustomDialDll, o.exe_path, (lastBackslash - o.exe_path + 1));
+    /* Check for possible overrun */
+    if (_tcslen(entry.szCustomDialDll) + _countof(DialerFileName) >= _countof(entry.szCustomDialDll))
+    {
+        MessageBox(NULL, _T("CreateNetworkFlyoutEntry: Not enough space for custom dialer DLL filename"), WindowCaption, MB_OK);
+        return;
+    }
+    _tcsncat(entry.szCustomDialDll, DialerFileName, _countof(DialerFileName));
+
+    /* Use the local phone number space to store the entry number for the custom dialer to use. */
+    _sntprintf_0(entry.szLocalPhoneNumber, _T("%d"), number);
+    entry.dwType = RASET_Vpn;
+    entry.dwEncryptionType = ET_Optional; 
+
+    _sntprintf_0(entryName, _T("%s%s"), VpnEntryPrefix, c->config_name);
+    result = RasSetEntryProperties(NULL, entryName, &entry, sizeof(entry), NULL, 0);
+    if (ERROR_SUCCESS != result)
+    {
+        TCHAR message[512];
+        _sntprintf_0(message, _T("CreateNetworkFlyoutEntry: Could not RasSetEntryProperties: %lu"), result);
+        MessageBox(NULL, message, WindowCaption, MB_OK);
+        return;
+    }
+}
 
 /* Create popup menus */
 void
@@ -90,6 +202,7 @@ CreatePopupMenus()
         AppendMenu(hMenu, MF_STRING ,IDM_CLOSE, LoadLocalizedString(IDS_MENU_CLOSE));
 
         SetMenuStatus(&o.conn[0],  o.conn[0].state);
+        CreateNetworkFlyoutEntry(&o.conn[0], 0);
     }
     else {
         /* Create Main menu with all connections */
@@ -132,6 +245,7 @@ CreatePopupMenus()
 #endif
 
             SetMenuStatus(&o.conn[i], o.conn[i].state);
+            CreateNetworkFlyoutEntry(&o.conn[i], i);
         }
     }
 
@@ -149,6 +263,7 @@ DestroyPopupMenus()
 
     DestroyMenu(hMenuService);
     DestroyMenu(hMenu);
+    ClearNetworkFlyout();
 }
 
 
@@ -215,6 +330,7 @@ void
 OnDestroyTray()
 {
     DestroyMenu(hMenu);
+    ClearNetworkFlyout();
     Shell_NotifyIcon(NIM_DELETE, &ni);
 }
 

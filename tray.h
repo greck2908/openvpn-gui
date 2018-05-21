@@ -52,5 +52,6 @@ void SetMenuStatus(connection_t *, conn_state_t);
 void SetServiceMenuStatus();
 void ShowTrayBalloon(TCHAR *, TCHAR *);
 void CheckAndSetTrayIcon();
+void ClearNetworkFlyout();
 
 #endif

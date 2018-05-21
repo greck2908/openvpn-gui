@@ -24,6 +24,7 @@ their dependencies. You can install these packages using the standard
 - mingw64-x86_64-gcc-core
 - mingw64-x86_64-g++
 - mingw64-x86_64-openssl
+- libtool
 
 
 Build

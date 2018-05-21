@@ -10,6 +10,8 @@
 *.log
 *.tar.gz
 *.bak
+*.lo
+*.la
 
 .deps
 Makefile
@@ -30,3 +32,4 @@ depcomp
 stamp-h1
 install-sh
 missing
+libtool
