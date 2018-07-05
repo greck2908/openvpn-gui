@@ -2,6 +2,7 @@ dnl  OpenVPN-GUI -- A Windows GUI for OpenVPN.
 dnl
 dnl  Copyright (C) 2004 Mathias Sundman <mathias@nilings.se>
 dnl                2010 Heiko Hund <heikoh@users.sf.net>
+dnl  Portions Copyright (C) 2018 Microsoft Corporation
 dnl
 dnl  This program is free software; you can redistribute it and/or modify
 dnl  it under the terms of the GNU General Public License as published by
